@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minesweeper</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f4f8;
+      --panel: #ffffff;
+      --text: #222;
+      --accent: #2563eb;
+      --cell: #d1d5db;
+      --cell-open: #f9fafb;
+      --border: #6b7280;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827;
+        --panel: #1f2937;
+        --text: #f3f4f6;
+        --cell: #4b5563;
+        --cell-open: #374151;
+        --border: #9ca3af;
+      }
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      min-height: 100vh;
+      place-items: center;
+      padding: 16px;
+    }
+
+    .app {
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 16px;
+      width: min(95vw, 520px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.15);
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .status {
+      font-weight: 700;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 4px;
+      user-select: none;
+    }
+
+    .cell {
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--border);
+      background: var(--cell);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .cell.open {
+      background: var(--cell-open);
+      cursor: default;
+    }
+
+    .cell.mine.open {
+      background: #ef4444;
+      color: #fff;
+    }
+
+    .n1 { color: #2563eb; }
+    .n2 { color: #16a34a; }
+    .n3 { color: #dc2626; }
+    .n4 { color: #7c3aed; }
+    .n5 { color: #b45309; }
+    .n6 { color: #0f766e; }
+    .n7 { color: #1f2937; }
+    .n8 { color: #6b7280; }
+
+    .help {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>Minesweeper</h1>
+    <div class="controls">
+      <button id="reset" type="button">リスタート</button>
+      <div>💣 <span id="mine-count">10</span></div>
+      <div>🚩 <span id="flag-count">0</span></div>
+      <div class="status" id="status">プレイ中</div>
+    </div>
+    <section class="board" id="board" aria-label="Minesweeper board"></section>
+    <p class="help">左クリックで開く / 右クリックで旗を立てる</p>
+  </main>
+
+  <script>
+    const SIZE = 9;
+    const MINES = 10;
+
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const resetButton = document.getElementById('reset');
+    const mineCountEl = document.getElementById('mine-count');
+    const flagCountEl = document.getElementById('flag-count');
+
+    let board = [];
+    let gameOver = false;
+
+    function initGame() {
+      board = Array.from({ length: SIZE * SIZE }, (_, index) => ({
+        index,
+        mine: false,
+        open: false,
+        flag: false,
+        adjacent: 0,
+      }));
+      gameOver = false;
+      placeMines();
+      calculateAdjacent();
+      render();
+      mineCountEl.textContent = String(MINES);
+      flagCountEl.textContent = '0';
+      statusEl.textContent = 'プレイ中';
+    }
+
+    function placeMines() {
+      const chosen = new Set();
+      while (chosen.size < MINES) {
+        chosen.add(Math.floor(Math.random() * board.length));
+      }
+      chosen.forEach((idx) => {
+        board[idx].mine = true;
+      });
+    }
+
+    function neighbors(index) {
+      const row = Math.floor(index / SIZE);
+      const col = index % SIZE;
+      const list = [];
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = row + dr;
+          const nc = col + dc;
+          if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+            list.push(nr * SIZE + nc);
+          }
+        }
+      }
+      return list;
+    }
+
+    function calculateAdjacent() {
+      board.forEach((cell) => {
+        if (cell.mine) return;
+        cell.adjacent = neighbors(cell.index).filter((idx) => board[idx].mine).length;
+      });
+    }
+
+    function reveal(index) {
+      const cell = board[index];
+      if (gameOver || cell.open || cell.flag) return;
+      cell.open = true;
+
+      if (cell.mine) {
+        statusEl.textContent = 'ゲームオーバー';
+        gameOver = true;
+        revealAllMines();
+        render();
+        return;
+      }
+
+      if (cell.adjacent === 0) {
+        neighbors(index).forEach(reveal);
+      }
+
+      checkWin();
+      render();
+    }
+
+    function toggleFlag(index) {
+      const cell = board[index];
+      if (gameOver || cell.open) return;
+      cell.flag = !cell.flag;
+      flagCountEl.textContent = String(board.filter((c) => c.flag).length);
+      render();
+    }
+
+    function revealAllMines() {
+      board.forEach((cell) => {
+        if (cell.mine) cell.open = true;
+      });
+    }
+
+    function checkWin() {
+      const safeCells = board.filter((cell) => !cell.mine);
+      const cleared = safeCells.every((cell) => cell.open);
+      if (cleared) {
+        statusEl.textContent = 'クリア！';
+        gameOver = true;
+      }
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      board.forEach((cell) => {
+        const div = document.createElement('div');
+        div.className = 'cell';
+        if (cell.open) div.classList.add('open');
+        if (cell.mine) div.classList.add('mine');
+
+        if (cell.open && cell.mine) {
+          div.textContent = '💣';
+        } else if (cell.open && cell.adjacent > 0) {
+          div.textContent = String(cell.adjacent);
+          div.classList.add(`n${cell.adjacent}`);
+        } else if (cell.flag) {
+          div.textContent = '🚩';
+        }
+
+        div.addEventListener('click', () => reveal(cell.index));
+        div.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          toggleFlag(cell.index);
+        });
+
+        boardEl.appendChild(div);
+      });
+    }
+
+    resetButton.addEventListener('click', initGame);
+    initGame();
+  </script>
+</body>
+</html>
